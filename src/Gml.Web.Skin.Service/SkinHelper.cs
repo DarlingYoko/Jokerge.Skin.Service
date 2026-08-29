@@ -1,4 +1,7 @@
-﻿using Gml.Web.Skin.Service.Models;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Gml.Web.Skin.Service.Models;
 using Gml.Web.Skin.Service.Models.Dto;
 
 namespace Gml.Web.Skin.Service;
@@ -6,6 +9,8 @@ namespace Gml.Web.Skin.Service;
 public abstract class SkinHelper
 {
     private const string DefaultSkinName = "default.png";
+    private static readonly HttpClient MojangHttpClient = new();
+    private static readonly TimeSpan MojangCacheDuration = TimeSpan.FromHours(1);
 
     public static string SkinTextureDirectory { get; } =
         Path.Combine(Environment.CurrentDirectory, "Storage", "Skins");
@@ -13,13 +18,17 @@ public abstract class SkinHelper
     public static string CloakTextureDirectory { get; } =
         Path.Combine(Environment.CurrentDirectory, "Storage", "Cloak");
 
-    public static UserTexture Create(string requestPathBase, string userName)
+    public static string MojangCacheDirectory { get; } =
+        Path.Combine(Environment.CurrentDirectory, "Storage", "MojangCache");
+
+    public static async Task<UserTexture> CreateAsync(string requestPathBase, string userName)
     {
         var skinPath = Path.Combine(SkinTextureDirectory, $"{userName}.png");
         var cloakPath = Path.Combine(CloakTextureDirectory, $"{userName}.png");
+        var hasCustomSkin = File.Exists(skinPath);
 
-        if (!File.Exists(skinPath))
-            skinPath = Path.Combine(SkinTextureDirectory, DefaultSkinName);
+        if (!hasCustomSkin)
+            skinPath = await GetMojangSkinPathAsync(userName);
 
         if (!File.Exists(cloakPath))
             cloakPath = string.Empty;
@@ -27,12 +36,10 @@ public abstract class SkinHelper
         var texture = new UserTexture
         {
             UserName = userName,
-            HasSkin = !skinPath.EndsWith(DefaultSkinName),
+            HasSkin = hasCustomSkin,
             HasCloak = !string.IsNullOrEmpty(cloakPath),
             SkinUrl = $"{requestPathBase}/skin/s-{userName}",
-            SkinFullPath = skinPath.EndsWith(DefaultSkinName)
-                ? Path.Combine(Environment.CurrentDirectory, SkinTextureDirectory, "default.png")
-                : Path.Combine(Environment.CurrentDirectory, SkinTextureDirectory, $"{userName}.png"),
+            SkinFullPath = skinPath,
             CloakFullPath = string.IsNullOrEmpty(cloakPath)
                 ? string.Empty
                 : Path.Combine(Environment.CurrentDirectory, CloakTextureDirectory, $"{userName}.png"),
@@ -47,14 +54,65 @@ public abstract class SkinHelper
             }
         };
 
-        if (!texture.HasSkin) return texture;
         using var inputImage = Image.Load(texture.SkinFullPath);
 
         texture.SkinFormat = GetSkinFormat(inputImage.Width);
 
-        inputImage.Dispose();
-
         return texture;
+    }
+
+    /// <summary>
+    /// Resolves a locally cached copy of the player's official Mojang skin (fetched via
+    /// api.mojang.com + sessionserver.mojang.com), falling back to the bundled default skin
+    /// if the player has no Mojang account, has no skin set, or the lookup fails.
+    /// </summary>
+    private static async Task<string> GetMojangSkinPathAsync(string userName)
+    {
+        var defaultPath = Path.Combine(SkinTextureDirectory, DefaultSkinName);
+        var cachedPath = Path.Combine(MojangCacheDirectory, $"{userName}.png");
+
+        if (File.Exists(cachedPath) &&
+            DateTime.UtcNow - File.GetLastWriteTimeUtc(cachedPath) < MojangCacheDuration)
+            return cachedPath;
+
+        try
+        {
+            var profile = await MojangHttpClient.GetFromJsonAsync<MojangProfileDto>(
+                $"https://api.mojang.com/users/profiles/minecraft/{Uri.EscapeDataString(userName)}");
+
+            if (string.IsNullOrEmpty(profile?.Id))
+                return File.Exists(cachedPath) ? cachedPath : defaultPath;
+
+            var session = await MojangHttpClient.GetFromJsonAsync<MojangSessionDto>(
+                $"https://sessionserver.mojang.com/session/minecraft/profile/{profile.Id}");
+
+            var texturesProperty = session?.Properties?.FirstOrDefault(p => p.Name == "textures");
+
+            if (texturesProperty is null)
+                return File.Exists(cachedPath) ? cachedPath : defaultPath;
+
+            var decodedJson = Convert.FromBase64String(texturesProperty.Value);
+            var payload = JsonSerializer.Deserialize<MojangTexturesPayload>(decodedJson);
+            var skinUrl = payload?.Textures?.Skin?.Url;
+
+            if (string.IsNullOrEmpty(skinUrl))
+                return File.Exists(cachedPath) ? cachedPath : defaultPath;
+
+            var skinBytes = await MojangHttpClient.GetByteArrayAsync(skinUrl);
+
+            if (!Directory.Exists(MojangCacheDirectory))
+                Directory.CreateDirectory(MojangCacheDirectory);
+
+            await File.WriteAllBytesAsync(cachedPath, skinBytes);
+
+            return cachedPath;
+        }
+        catch
+        {
+            // Mojang API unreachable/rate-limited/user not found — keep serving the last
+            // cached copy if we have one, otherwise fall back to the bundled default skin.
+            return File.Exists(cachedPath) ? cachedPath : defaultPath;
+        }
     }
 
     private static SkinFormat GetSkinFormat(double width)
@@ -74,5 +132,44 @@ public abstract class SkinHelper
         if (!user.HasSkin) imagePath = Path.Combine(SkinTextureDirectory, "default.png");
 
         return imagePath;
+    }
+
+    private class MojangProfileDto
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+    }
+
+    private class MojangSessionDto
+    {
+        [JsonPropertyName("properties")]
+        public MojangSessionProperty[]? Properties { get; set; }
+    }
+
+    private class MojangSessionProperty
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = null!;
+
+        [JsonPropertyName("value")]
+        public string Value { get; set; } = null!;
+    }
+
+    private class MojangTexturesPayload
+    {
+        [JsonPropertyName("textures")]
+        public MojangTextureMap? Textures { get; set; }
+    }
+
+    private class MojangTextureMap
+    {
+        [JsonPropertyName("SKIN")]
+        public MojangTextureEntry? Skin { get; set; }
+    }
+
+    private class MojangTextureEntry
+    {
+        [JsonPropertyName("url")]
+        public string? Url { get; set; }
     }
 }

@@ -38,6 +38,9 @@ public static class ApplicationExtensions
 
         if (!Directory.Exists(SkinHelper.CloakTextureDirectory))
             Directory.CreateDirectory(SkinHelper.CloakTextureDirectory);
+
+        if (!Directory.Exists(SkinHelper.MojangCacheDirectory))
+            Directory.CreateDirectory(SkinHelper.MojangCacheDirectory);
     }
 
     public static WebApplication Run(this WebApplicationBuilder builder)

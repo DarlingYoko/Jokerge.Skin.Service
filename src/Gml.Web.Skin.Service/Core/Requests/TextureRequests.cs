@@ -1,4 +1,4 @@
-﻿using AutoMapper;
+using AutoMapper;
 using Gml.Web.Skin.Service.Core.Cloudflare;
 using Gml.Web.Skin.Service.Models.Dto;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +29,7 @@ internal abstract class TextureRequests
                 await file.CopyToAsync(fileStream);
             }
 
-            var texture = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+            var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
             return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
         }
         catch (Exception ex)
@@ -74,7 +74,7 @@ internal abstract class TextureRequests
                 await file.CopyToAsync(fileStream);
             }
 
-            var texture = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+            var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
             return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
         }
         catch (Exception ex)
@@ -95,18 +95,19 @@ internal abstract class TextureRequests
         return Results.Ok();
     }
 
-    internal static Task<IResult> GetSkin(HttpRequest request, string userName, string? uuid)
+    internal static async Task<IResult> GetSkin(HttpRequest request, string userName, string? uuid)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName.Substring(2, userName.Length - 2));
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}",
+            userName.Substring(2, userName.Length - 2));
 
-        return Task.FromResult(Results.File(user.SkinFullPath, "image/png"));
+        return Results.File(user.SkinFullPath, "image/png");
     }
 
-    internal static Task<IResult> GetUserTexture(HttpRequest request, IMapper mapper, string userName)
+    internal static async Task<IResult> GetUserTexture(HttpRequest request, IMapper mapper, string userName)
     {
-        var texture = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+        var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
-        return Task.FromResult(Results.Ok(mapper.Map<UserTextureReadDto>(texture)));
+        return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
     }
 
     internal static async Task<IResult> RefreshCache(HttpRequest request, IMapper mapper, string userName)
@@ -126,59 +127,60 @@ internal abstract class TextureRequests
         return Results.Ok();
     }
 
-    internal static Task<IResult> GetCloak(HttpRequest request, string userName, int? size = 128)
+    internal static async Task<IResult> GetCloak(HttpRequest request, string userName, int? size = 128)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
-        if (!user.HasCloak) return Task.FromResult(Results.NotFound("Cloak not exists"));
+        if (!user.HasCloak) return Results.NotFound("Cloak not exists");
 
         var image = SkinViewer.SkinViewer.GetCloak(user.CloakFullPath, user, size ?? 128);
 
-        return Task.FromResult(Results.File(image, "image/png"));
+        return Results.File(image, "image/png");
     }
 
-    internal static Task<IResult> GetCloakTexture(HttpRequest request, string userName)
+    internal static async Task<IResult> GetCloakTexture(HttpRequest request, string userName)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName.Substring(2, userName.Length - 2));
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}",
+            userName.Substring(2, userName.Length - 2));
 
-        if (!user.HasCloak) return Task.FromResult(Results.NotFound("Cloak not exists"));
+        if (!user.HasCloak) return Results.NotFound("Cloak not exists");
 
-        return Task.FromResult(Results.File(user.CloakFullPath, "image/png"));
+        return Results.File(user.CloakFullPath, "image/png");
     }
 
-    internal static Task<IResult> GetSkinHead(HttpRequest request, string userName, int size = 128)
+    internal static async Task<IResult> GetSkinHead(HttpRequest request, string userName, int size = 128)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         var image = SkinViewer.SkinViewer.GetHead(user.SkinFullPath, user, size);
 
-        return Task.FromResult(Results.File(image, "image/png"));
+        return Results.File(image, "image/png");
     }
 
-    internal static Task<IResult> GetSkinFront(HttpRequest request, string userName, int size = 128)
+    internal static async Task<IResult> GetSkinFront(HttpRequest request, string userName, int size = 128)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         var image = SkinViewer.SkinViewer.GetFront(user.SkinFullPath, user, size);
 
-        return Task.FromResult(Results.File(image, "image/png"));
+        return Results.File(image, "image/png");
     }
 
-    internal static Task<IResult> GetSkinBack(HttpRequest request, string userName, int size = 128)
+    internal static async Task<IResult> GetSkinBack(HttpRequest request, string userName, int size = 128)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         var image = SkinViewer.SkinViewer.GetBack(user, size);
 
-        return Task.FromResult(Results.File(image, "image/png"));
+        return Results.File(image, "image/png");
     }
 
-    internal static Task<IResult> GetSkinAndCloakBack(HttpRequest request, string userName, int size = 128)
+    internal static async Task<IResult> GetSkinAndCloakBack(HttpRequest request, string userName, int size = 128)
     {
-        var user = SkinHelper.Create($"{request.Scheme}://{request.Host.Value}", userName);
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         var image = SkinViewer.SkinViewer.GetBack(user, size, true);
 
-        return Task.FromResult(Results.File(image, "image/png"));
+        return Results.File(image, "image/png");
     }
 }
