@@ -13,10 +13,11 @@ internal abstract class TextureRequests
         if (file.Length == 0)
             return Results.BadRequest();
 
-        var tempFile = Path.Combine(SkinHelper.SkinTextureDirectory, $"{userName}.png");
-
         try
         {
+            userName = SkinHelper.SanitizeUserName(userName);
+            var tempFile = Path.Combine(SkinHelper.SkinTextureDirectory, $"{userName}.png");
+
             // Если файл существует, удаляем его
             if (File.Exists(tempFile))
             {
@@ -41,6 +42,14 @@ internal abstract class TextureRequests
     internal static async Task<IResult> DeleteSkin(HttpRequest request, IMapper mapper,
         string userName)
     {
+        try
+        {
+            userName = SkinHelper.SanitizeUserName(userName);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
 
         var filePath = Path.Combine(SkinHelper.SkinTextureDirectory, $"{userName}.png");
 
@@ -58,10 +67,11 @@ internal abstract class TextureRequests
         if (file.Length == 0)
             return Results.BadRequest();
 
-        var tempFile = Path.Combine(SkinHelper.CloakTextureDirectory, $"{userName}.png");
-
         try
         {
+            userName = SkinHelper.SanitizeUserName(userName);
+            var tempFile = Path.Combine(SkinHelper.CloakTextureDirectory, $"{userName}.png");
+
             // Если файл существует, удаляем его
             if (File.Exists(tempFile))
             {
@@ -86,6 +96,15 @@ internal abstract class TextureRequests
     internal static async Task<IResult> DeleteCloak(HttpRequest request, IMapper mapper,
         string userName)
     {
+        try
+        {
+            userName = SkinHelper.SanitizeUserName(userName);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
         var filePath = Path.Combine(SkinHelper.CloakTextureDirectory, $"{userName}.png");
 
         if (!File.Exists(filePath))
@@ -97,8 +116,16 @@ internal abstract class TextureRequests
 
     internal static async Task<IResult> GetSkin(HttpRequest request, string userName, string? uuid)
     {
-        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}",
-            userName.Substring(2, userName.Length - 2));
+        try
+        {
+            userName = SkinHelper.SanitizeUserName(userName);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         return Results.File(user.SkinFullPath, "image/png");
     }
@@ -140,8 +167,16 @@ internal abstract class TextureRequests
 
     internal static async Task<IResult> GetCloakTexture(HttpRequest request, string userName)
     {
-        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}",
-            userName.Substring(2, userName.Length - 2));
+        try
+        {
+            userName = SkinHelper.SanitizeUserName(userName);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
+        var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         if (!user.HasCloak) return Results.NotFound("Cloak not exists");
 

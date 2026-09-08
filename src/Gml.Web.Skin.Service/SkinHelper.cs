@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Gml.Web.Skin.Service.Models;
 using Gml.Web.Skin.Service.Models.Dto;
 using SixLabors.ImageSharp.PixelFormats;
@@ -13,6 +14,33 @@ public abstract class SkinHelper
     private static readonly HttpClient MojangHttpClient = new();
     private static readonly TimeSpan MojangCacheDuration = TimeSpan.FromHours(1);
 
+    // Minecraft usernames are 1-16 chars of [A-Za-z0-9_]; the extra couple chars and
+    // hyphen give slack for the "s-"/"c-" texture-endpoint prefixes without opening up
+    // path separators or traversal sequences.
+    private static readonly Regex ValidUserNamePattern = new("^[A-Za-z0-9_-]{1,32}$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Strips a leading "s-"/"c-" texture-endpoint prefix if present, then validates the
+    /// result against a strict username charset. Every code path that turns a caller-supplied
+    /// userName into a filesystem path (read, write, or delete) must go through this first —
+    /// skipping it is a path-traversal / arbitrary-file vulnerability.
+    /// </summary>
+    public static string SanitizeUserName(string userName)
+    {
+        if (string.IsNullOrEmpty(userName))
+            throw new ArgumentException("Username is required.", nameof(userName));
+
+        if (userName.Length > 2 &&
+            (userName.StartsWith("s-", StringComparison.Ordinal) ||
+             userName.StartsWith("c-", StringComparison.Ordinal)))
+            userName = userName[2..];
+
+        if (!ValidUserNamePattern.IsMatch(userName))
+            throw new ArgumentException("Invalid username.", nameof(userName));
+
+        return userName;
+    }
+
     public static string SkinTextureDirectory { get; } =
         Path.Combine(Environment.CurrentDirectory, "Storage", "Skins");
 
@@ -24,6 +52,7 @@ public abstract class SkinHelper
 
     public static async Task<UserTexture> CreateAsync(string requestPathBase, string userName)
     {
+        userName = SanitizeUserName(userName);
         var skinPath = Path.Combine(SkinTextureDirectory, $"{userName}.png");
         var cloakPath = Path.Combine(CloakTextureDirectory, $"{userName}.png");
         var hasCustomSkin = File.Exists(skinPath);
@@ -129,6 +158,7 @@ public abstract class SkinHelper
 
     public static string GetActualSkinPath(string userName, UserTexture user)
     {
+        userName = SanitizeUserName(userName);
         var imagePath = Path.Combine(SkinTextureDirectory, $"{userName}.png");
 
         if (!user.HasSkin) imagePath = Path.Combine(SkinTextureDirectory, "default.png");
