@@ -12,7 +12,7 @@ public class CloudflareUtil
     private const bool _useHttps = true;
     private static readonly HttpClient httpClient = new();
 
-    public static async Task ClearCacheAsync(params string[] urls)
+    public static async Task ClearCacheAsync(ILogger logger, params string[] urls)
     {
         try
         {
@@ -40,12 +40,14 @@ public class CloudflareUtil
 
             if (!response.IsSuccessStatusCode)
             {
-                // ToDo: Добавить логгер
+                logger.LogWarning(
+                    "Cloudflare cache purge failed with status {StatusCode}: {ResponseBody}",
+                    response.StatusCode, responseBody);
             }
         }
         catch (Exception ex)
         {
-            // ToDo: Добавить логгер
+            logger.LogError(ex, "Cloudflare cache purge threw an exception");
         }
     }
 }

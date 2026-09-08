@@ -188,7 +188,8 @@ internal abstract class TextureRequests
         return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
     }
 
-    internal static async Task<IResult> RefreshCache(HttpRequest request, IMapper mapper, string userName)
+    internal static async Task<IResult> RefreshCache(HttpRequest request, IMapper mapper, string userName,
+        ILogger<CloudflareUtil> logger)
     {
         var enpoints = new[]
         {
@@ -200,7 +201,7 @@ internal abstract class TextureRequests
             $"/cloak/{userName}"
         };
 
-        await CloudflareUtil.ClearCacheAsync(enpoints);
+        await CloudflareUtil.ClearCacheAsync(logger, enpoints);
 
         return Results.Ok();
     }
