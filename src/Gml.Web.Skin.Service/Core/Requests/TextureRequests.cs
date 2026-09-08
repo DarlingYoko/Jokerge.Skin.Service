@@ -7,11 +7,51 @@ namespace Gml.Web.Skin.Service.Core.Requests;
 
 internal abstract class TextureRequests
 {
+    // Generous headroom over the largest legitimate skin (SkinFullHD, >512px): a decoded
+    // 4096x4096 32bpp bitmap is ~64MB in memory, which is still cheap, but blocks a crafted
+    // tiny-file/huge-dimension PNG from ballooning far past that on decode.
+    private const long MaxUploadBytes = 10 * 1024 * 1024;
+    private const int MaxImageDimension = 4096;
+
+    /// <summary>
+    /// Reads just the image header (no full decode) to reject an oversized skin/cloak
+    /// before it's ever fully decoded — a decompression-bomb guard. Deletes filePath and
+    /// returns a validation error message on rejection, otherwise null.
+    /// </summary>
+    private static string? ValidateImageDimensionsOrDelete(string filePath)
+    {
+        try
+        {
+            var info = Image.Identify(filePath);
+            if (info is null)
+            {
+                File.Delete(filePath);
+                return "Uploaded file is not a valid image.";
+            }
+
+            if (info.Width > MaxImageDimension || info.Height > MaxImageDimension)
+            {
+                File.Delete(filePath);
+                return $"Image dimensions {info.Width}x{info.Height} exceed the {MaxImageDimension}x{MaxImageDimension} limit.";
+            }
+
+            return null;
+        }
+        catch (Exception)
+        {
+            File.Delete(filePath);
+            return "Uploaded file is not a valid image.";
+        }
+    }
+
     internal static async Task<IResult> LoadSkin(HttpRequest request, [FromForm] IFormFile file, IMapper mapper,
         string userName)
     {
         if (file.Length == 0)
             return Results.BadRequest();
+
+        if (file.Length > MaxUploadBytes)
+            return Results.BadRequest($"File exceeds the {MaxUploadBytes / (1024 * 1024)}MB upload limit.");
 
         try
         {
@@ -29,6 +69,10 @@ internal abstract class TextureRequests
             {
                 await file.CopyToAsync(fileStream);
             }
+
+            var dimensionError = ValidateImageDimensionsOrDelete(tempFile);
+            if (dimensionError is not null)
+                return Results.BadRequest(dimensionError);
 
             var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
             return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
@@ -67,6 +111,9 @@ internal abstract class TextureRequests
         if (file.Length == 0)
             return Results.BadRequest();
 
+        if (file.Length > MaxUploadBytes)
+            return Results.BadRequest($"File exceeds the {MaxUploadBytes / (1024 * 1024)}MB upload limit.");
+
         try
         {
             userName = SkinHelper.SanitizeUserName(userName);
@@ -83,6 +130,10 @@ internal abstract class TextureRequests
             {
                 await file.CopyToAsync(fileStream);
             }
+
+            var dimensionError = ValidateImageDimensionsOrDelete(tempFile);
+            if (dimensionError is not null)
+                return Results.BadRequest(dimensionError);
 
             var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
             return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
