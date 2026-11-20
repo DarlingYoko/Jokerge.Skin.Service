@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Gml.Web.Skin.Service.Core.Storage;
 using Gml.Web.Skin.Service.Models;
 using Gml.Web.Skin.Service.Models.Dto;
 using SixLabors.ImageSharp.PixelFormats;
@@ -84,7 +85,7 @@ public abstract class SkinHelper
             }
         };
 
-        using var inputImage = Image.Load<Rgba32>(texture.SkinFullPath);
+        using var inputImage = TextureFile.LoadRgba(texture.SkinFullPath);
 
         texture.SkinFormat = GetSkinFormat(inputImage.Width);
         texture.SkinType = SkinModelDetector.IsSlimModel(inputImage) ? SkinType.Slim : SkinType.Default;

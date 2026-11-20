@@ -1,5 +1,6 @@
 using AutoMapper;
 using Gml.Web.Skin.Service.Core.Cloudflare;
+using Gml.Web.Skin.Service.Core.Storage;
 using Gml.Web.Skin.Service.Models.Dto;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,37 +16,35 @@ internal abstract class TextureRequests
 
     /// <summary>
     /// Reads just the image header (no full decode) to reject an oversized skin/cloak
-    /// before it's ever fully decoded — a decompression-bomb guard. Deletes filePath and
-    /// returns a validation error message on rejection, otherwise null.
+    /// before it's ever fully decoded — a decompression-bomb guard. Returns a validation
+    /// error message on rejection, otherwise null.
     /// </summary>
-    private static string? ValidateImageDimensionsOrDelete(string filePath)
+    private static string? ValidateImageDimensions(string filePath)
     {
         try
         {
             var info = Image.Identify(filePath);
             if (info is null)
-            {
-                File.Delete(filePath);
                 return "Uploaded file is not a valid image.";
-            }
 
             if (info.Width > MaxImageDimension || info.Height > MaxImageDimension)
-            {
-                File.Delete(filePath);
                 return $"Image dimensions {info.Width}x{info.Height} exceed the {MaxImageDimension}x{MaxImageDimension} limit.";
-            }
 
             return null;
         }
         catch (Exception)
         {
-            File.Delete(filePath);
             return "Uploaded file is not a valid image.";
         }
     }
 
-    internal static async Task<IResult> LoadSkin(HttpRequest request, [FromForm] IFormFile file, IMapper mapper,
-        string userName)
+    /// <summary>
+    /// Saves an uploaded skin or cloak. The file is swapped in atomically, so requests reading the
+    /// player's textures at the same moment (a cloak upload re-reads the skin) never hit a lock or
+    /// a half-written file.
+    /// </summary>
+    private static async Task<IResult> SaveTexture(HttpRequest request, IFormFile file, IMapper mapper,
+        string userName, string directory, string kind)
     {
         if (file.Length == 0)
             return Results.BadRequest();
@@ -56,32 +55,25 @@ internal abstract class TextureRequests
         try
         {
             userName = SkinHelper.SanitizeUserName(userName);
-            var tempFile = Path.Combine(SkinHelper.SkinTextureDirectory, $"{userName}.png");
+            var target = Path.Combine(directory, $"{userName}.png");
 
-            // Если файл существует, удаляем его
-            if (File.Exists(tempFile))
-            {
-                File.Delete(tempFile);
-            }
-
-            // Создаем новый файл и копируем в него данные
-            using (var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                await file.CopyToAsync(fileStream);
-            }
-
-            var dimensionError = ValidateImageDimensionsOrDelete(tempFile);
-            if (dimensionError is not null)
-                return Results.BadRequest(dimensionError);
+            await using var upload = file.OpenReadStream();
+            var error = await TextureFile.ReplaceAsync(upload, target, ValidateImageDimensions);
+            if (error is not null)
+                return Results.BadRequest(error);
 
             var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
             return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
         }
         catch (Exception ex)
         {
-            return Results.BadRequest($"Error saving skin: {ex.Message}");
+            return Results.BadRequest($"Error saving {kind}: {ex.Message}");
         }
     }
+
+    internal static Task<IResult> LoadSkin(HttpRequest request, [FromForm] IFormFile file, IMapper mapper,
+        string userName) =>
+        SaveTexture(request, file, mapper, userName, SkinHelper.SkinTextureDirectory, "skin");
 
     internal static async Task<IResult> DeleteSkin(HttpRequest request, IMapper mapper,
         string userName)
@@ -105,44 +97,9 @@ internal abstract class TextureRequests
 
     }
 
-    internal static async Task<IResult> LoadCloak(HttpRequest request, [FromForm] IFormFile file, IMapper mapper,
-        string userName)
-    {
-        if (file.Length == 0)
-            return Results.BadRequest();
-
-        if (file.Length > MaxUploadBytes)
-            return Results.BadRequest($"File exceeds the {MaxUploadBytes / (1024 * 1024)}MB upload limit.");
-
-        try
-        {
-            userName = SkinHelper.SanitizeUserName(userName);
-            var tempFile = Path.Combine(SkinHelper.CloakTextureDirectory, $"{userName}.png");
-
-            // Если файл существует, удаляем его
-            if (File.Exists(tempFile))
-            {
-                File.Delete(tempFile);
-            }
-
-            // Создаем новый файл и копируем в него данные
-            using (var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                await file.CopyToAsync(fileStream);
-            }
-
-            var dimensionError = ValidateImageDimensionsOrDelete(tempFile);
-            if (dimensionError is not null)
-                return Results.BadRequest(dimensionError);
-
-            var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
-            return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
-        }
-        catch (Exception ex)
-        {
-            return Results.BadRequest($"Error saving cloak: {ex.Message}");
-        }
-    }
+    internal static Task<IResult> LoadCloak(HttpRequest request, [FromForm] IFormFile file, IMapper mapper,
+        string userName) =>
+        SaveTexture(request, file, mapper, userName, SkinHelper.CloakTextureDirectory, "cloak");
 
     internal static async Task<IResult> DeleteCloak(HttpRequest request, IMapper mapper,
         string userName)
@@ -178,11 +135,20 @@ internal abstract class TextureRequests
 
         var user = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
-        return Results.File(user.SkinFullPath, "image/png");
+        return Results.File(TextureFile.ReadAllBytes(user.SkinFullPath), "image/png");
     }
 
     internal static async Task<IResult> GetUserTexture(HttpRequest request, IMapper mapper, string userName)
     {
+        try
+        {
+            userName = SkinHelper.SanitizeUserName(userName);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
         var texture = await SkinHelper.CreateAsync($"{request.Scheme}://{request.Host.Value}", userName);
 
         return Results.Ok(mapper.Map<UserTextureReadDto>(texture));
@@ -232,7 +198,7 @@ internal abstract class TextureRequests
 
         if (!user.HasCloak) return Results.NotFound("Cloak not exists");
 
-        return Results.File(user.CloakFullPath, "image/png");
+        return Results.File(TextureFile.ReadAllBytes(user.CloakFullPath!), "image/png");
     }
 
     internal static async Task<IResult> GetSkinHead(HttpRequest request, string userName, int size = 128)

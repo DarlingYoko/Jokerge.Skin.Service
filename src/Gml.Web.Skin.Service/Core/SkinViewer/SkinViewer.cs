@@ -1,4 +1,5 @@
-﻿using Gml.Web.Skin.Service.Models;
+﻿using Gml.Web.Skin.Service.Core.Storage;
+using Gml.Web.Skin.Service.Models;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -13,7 +14,7 @@ public abstract class SkinViewer
             return [];
         }
 
-        using var inputImage = Image.Load(skinPath);
+        using var inputImage = TextureFile.LoadImage(skinPath);
 
         var scaleFactor = inputImage.Width / 64;
 
@@ -32,7 +33,7 @@ public abstract class SkinViewer
 
     public static byte[] GetCloak(string cloakPath, UserTexture user, int size)
     {
-        using var inputImage = Image.Load(cloakPath);
+        using var inputImage = TextureFile.LoadImage(cloakPath);
 
         var scaleFactor = inputImage.Width / 64;
 
@@ -46,7 +47,7 @@ public abstract class SkinViewer
 
     public static byte[] GetFront(string skinPath, UserTexture user, int size)
     {
-        using var inputImage = Image.Load(skinPath);
+        using var inputImage = TextureFile.LoadImage(skinPath);
 
         var scaleFactor = inputImage.Width / 64;
         var extendedSkin = inputImage.Height / scaleFactor >= 64;
@@ -121,8 +122,8 @@ public abstract class SkinViewer
 
     public static byte[] GetBack(UserTexture user, int size, bool includeCloak = false)
     {
-        using var inputImage = Image.Load(user.SkinFullPath);
-        using var cloakImage = includeCloak && user.HasCloak ? Image.Load(user.CloakFullPath) : null;
+        using var inputImage = TextureFile.LoadImage(user.SkinFullPath);
+        using var cloakImage = includeCloak && user.HasCloak ? TextureFile.LoadImage(user.CloakFullPath!) : null;
 
         var skinScaleFactor = inputImage.Width / 64;
         var cloakScaleFactor = cloakImage?.Width >= 64 ? cloakImage.Width / 64 : 1;
